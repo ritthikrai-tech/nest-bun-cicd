@@ -1,0 +1,53 @@
+name: Build and Deploy to DigitalOcean
+
+on:
+  push:
+    branches:
+      - main # ทำงานเมื่อมีการ push เข้า branch main
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          # ตั้งชื่อ Image: docker_username/ชื่อโปรเจกต์:latest
+          tags: ${{ secrets.DOCKER_USERNAME }}/my-nest-bun-app:latest
+
+  deploy:
+    needs: build-and-push # ต้องรอให้ build เสร็จก่อนค่อยทำ
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          script: |
+            # 1. ดึง Image ใหม่ล่าสุดมา
+            docker pull ${{ secrets.DOCKER_USERNAME }}/my-nest-bun-app:latest
+
+            # 2. สั่งหยุดและลบ Container เก่า (ถ้ามี)
+            # || true คือถ้าไม่มี container เก่าก็ไม่ error
+            docker stop my-nest-app || true
+            docker rm my-nest-app || true
+
+            # 3. รัน Container ใหม่ (Map Port 80 ของเครื่อง -> 3000 ของ NestJS)
+            docker run -d \
+              --name my-nest-app \
+              --restart always \
+              -p 80:3000 \
+              ${{ secrets.DOCKER_USERNAME }}/my-nest-bun-app:latest
